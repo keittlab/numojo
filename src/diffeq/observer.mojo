@@ -20,14 +20,24 @@ from linalg.static_matrix import (
 )
 
 
-struct NullLogger(StepLogger):
+@value
+struct NullLogger[m: Int](StepLogger):
+    var t: List[Float64]
+    var state: List[ColVec[m]]
+
     fn __init__(inout self):
-        pass
+        self.t = List[Float64]()
+        self.state = List[ColVec[m]]()
 
-    fn log[n: Int](inout self, t: Float64, s: ColVec[n]) raises:
-        pass
+    fn __copyinit__(inout self, other: Self):
+        self.t = other.t
+        self.state = other.state
+
+    fn log_state[n: Int](inout self, t: Float64, s: ColVec[n]):
+        constrained[m == n, "Invalid state size"]()
 
 
+@value
 struct StateLogger[m: Int](StepLogger):
     var t: List[Float64]
     var state: List[ColVec[m]]
@@ -36,10 +46,11 @@ struct StateLogger[m: Int](StepLogger):
         self.t = List[Float64]()
         self.state = List[ColVec[m]]()
 
-    fn log[n: Int](inout self, t: Float64, s: ColVec[n]) raises:
+    fn __copyinit__(inout self, other: Self):
+        self.t = other.t
+        self.state = other.state
+
+    fn log_state[n: Int](inout self, t: Float64, s: ColVec[n]):
         constrained[m == n, "Invalid state size"]()
+        self.state.append(rebind[ColVec[m]](s))
         self.t.append(t)
-        var ss = ColVec[m]()  # No parameterized traits yet :-(
-        for i in range(len(s)):
-            ss[i] = s[i]
-        self.state.append(ss)

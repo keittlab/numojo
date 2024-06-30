@@ -22,7 +22,10 @@ trait StepLogger:
     fn __init__(inout self):
         pass
 
-    fn log[n: Int](inout self, t: Float64, s: ColVec[n]) raises:
+    fn __copyinit__(inout self, other: Self):
+        pass
+
+    fn log_state[n: Int](inout self, t: Float64, s: ColVec[n]):
         pass
 
 

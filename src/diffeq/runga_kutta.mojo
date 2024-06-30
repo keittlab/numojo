@@ -11,7 +11,15 @@
 # limitations under the License.
 # ===----------------------------------------------------------------------=== #
 
-from diffeq.diffeq_traits import DESys, ExplicitRK, EmbeddedRK, StateStepper
+from diffeq.diffeq_traits import (
+    DESys,
+    ExplicitRK,
+    EmbeddedRK,
+    StateStepper,
+    StepLogger,
+)
+
+from diffeq.observer import NullLogger
 
 from linalg.static_matrix import (
     StaticMat as Mat,
@@ -20,17 +28,22 @@ from linalg.static_matrix import (
 )
 
 
-struct RKFixedStepper[Strategy: ExplicitRK, Sys: DESys, n: Int](StateStepper):
+struct RKFixedStepper[
+    Strategy: ExplicitRK, Sys: DESys, Logger: StepLogger, n: Int
+](StateStepper):
     alias StateType = ColVec[n]
 
     var state: Self.StateType
+    var obs: Logger
+    var sys: Sys
+
     var dt: Float64
     var t: Float64
-    var sys: Sys
 
     fn __init__(
         inout self,
         sys: Sys,
+        obs: Logger,
         state: Self.StateType,
         dt: Float64,
         t0: Float64 = 0,
@@ -39,8 +52,11 @@ struct RKFixedStepper[Strategy: ExplicitRK, Sys: DESys, n: Int](StateStepper):
             raise Error("Initial state has the wrong number of dimensions")
         self.sys = sys
         self.state = state
+        self.obs = obs
         self.dt = dt
         self.t = t0
+
+        self.obs.log_state(t0, state)
 
     fn step(inout self):
         alias m = Strategy.stages()
@@ -56,24 +72,30 @@ struct RKFixedStepper[Strategy: ExplicitRK, Sys: DESys, n: Int](StateStepper):
             k.set_col[i](self.sys.deriv(t, s))
 
         alias w = Strategy.weights[m]()
+
         self.state += k @ w * self.dt
         self.t += self.dt
 
+        self.obs.log_state(self.t, self.state)
 
-struct RKAdaptiveStepper[Strategy: EmbeddedRK, Sys: DESys, n: Int](
-    StateStepper
-):
+
+struct RKAdaptiveStepper[
+    Strategy: EmbeddedRK, Sys: DESys, Logger: StepLogger, n: Int
+](StateStepper):
     alias StateType = ColVec[n]
 
     var state: Self.StateType
-    var tol: Float64
+    var obs: Logger
+    var sys: Sys
+
     var dt: Float64
     var t: Float64
-    var sys: Sys
+    var tol: Float64
 
     fn __init__(
         inout self,
         sys: Sys,
+        owned obs: Logger,
         state: Self.StateType,
         dt: Float64,
         t0: Float64 = 0,
@@ -83,11 +105,13 @@ struct RKAdaptiveStepper[Strategy: EmbeddedRK, Sys: DESys, n: Int](
             raise Error("Initial state has the wrong number of dimensions")
         self.sys = sys
         self.state = state
+        self.obs = obs^
         self.tol = tol
         self.dt = dt
         self.t = t0
 
-    # TODO: Handle FSAL
+        self.obs.log_state(t0, state)
+
     fn step(inout self):
         alias p = Strategy.order2()
         alias w1 = Strategy.weights[m]()
@@ -106,26 +130,32 @@ struct RKAdaptiveStepper[Strategy: EmbeddedRK, Sys: DESys, n: Int](
 
         alias dw = w1 - w2
         var err = k @ dw * self.dt
+
         if err.max_value() < self.tol:
             self.state += k @ w1 * self.dt
             self.t += self.dt
+
+            self.obs.log_state(self.t, self.state)
+
         var s = (self.tol / err.max_value() / 2) ** (1 / p)
         self.dt *= max(min(s, 4), 1 / 4)
 
 
-""" 
-from diffeq.desys import Lorenz
-from diffeq.rkstrategy import RK4, RK45, LStable
+""" from diffeq.desys_examples import Lorenz
+from diffeq.rk_strategies import RK4, RK45, LStable
+from diffeq.observer import NullLogger, StateLogger
 
 
 fn main() raises:
     var grad = Lorenz(10, 28, 8 / 3)
     var s0 = ColVec[3](2.0, 1.0, 1.0)
-    var stepper = RKAdaptiveStepper[RK45](grad, s0, 0.01)
+    var obs = StateLogger[3]()
+    var stepper = RKAdaptiveStepper[RK45](grad, obs^, s0, 0.01)
     for _ in range(30):
-        print("t =", stepper.t, end=": ")
-        for i in range(3):
-            print(stepper.state[i], end=" ")
-        print()
         stepper.step()
-"""
+
+    for i in range(len(stepper.obs.t)):
+        print("t =", stepper.obs.t[i], end=": ")
+        for j in range(3):
+            print(stepper.obs.state[i][j], end=" ")
+        print() """
